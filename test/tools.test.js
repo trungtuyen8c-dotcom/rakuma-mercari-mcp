@@ -35,7 +35,10 @@ const products = [{ id: '7', name: '30th Celebration', active: true, txCount: 3 
 test('lists the expected tools', async () => {
   const { client } = await connect({});
   const names = (await client.listTools()).tools.map(t => t.name).sort();
-  assert.deepEqual(names, ['add_product', 'add_purchase', 'add_sale', 'analyze_product', 'get_dashboard', 'get_stock', 'list_periods', 'list_products', 'list_purchases', 'list_sales']);
+  assert.deepEqual(names, ['add_product', 'add_purchase', 'add_sale', 'analyze_product', 'delete_purchase', 'delete_sale',
+    'get_dashboard', 'get_stock', 'list_periods', 'list_products', 'list_purchases', 'list_rakuma_orders', 'list_sales',
+    'mark_rakuma_reply_sent', 'open_next_period', 'set_period_totals', 'set_purchase_status', 'set_stock', 'skip_rakuma_reply',
+    'sync_rakuma_orders', 'update_purchase', 'update_sale']);
 });
 
 test('sends the API key and resolves product names', async () => {
@@ -78,4 +81,39 @@ test('unknown product is reported, nothing is posted', async () => {
   const res = await client.callTool({ name: 'add_purchase', arguments: { product: 'nope', price: 100, qty: 1 } });
   assert.equal(res.isError, true);
   assert.equal(calls.filter(c => c.key.startsWith('POST')).length, 0);
+});
+
+test('update_purchase changes only the given fields', async () => {
+  const row = { id: '5', periodId: '1', productId: '7', source: 'BULK', date: '', price: 25000, qty: 1, discount: 0,
+    tracking: '', merged: false, link: 'https://item.fril.jp/a', note: '' };
+  const { client, calls } = await connect({
+    'GET /api/v1/purchases': [200, [row]],
+    'PUT /api/v1/purchases/5': [200, { ...row, qty: 2, total: 50000 }],
+  });
+  const res = await client.callTool({ name: 'update_purchase', arguments: { id: '5', qty: 2 } });
+  assert.equal(JSON.parse(res.content[0].text).total, 50000);
+  assert.deepEqual(calls.at(-1).body, { periodId: '1', productId: '7', source: 'BULK', date: '', price: 25000, qty: 2, discount: 0,
+    tracking: '', merged: false, link: 'https://item.fril.jp/a', note: '' });
+});
+
+test('set_stock resolves the product and targets the period', async () => {
+  const { client, calls } = await connect({
+    'GET /api/v1/products': [200, products],
+    'PUT /api/v1/stock/7/current?period_id=1': [200, { productId: '7', current: 4, adjust: -2 }],
+  });
+  const res = await client.callTool({ name: 'set_stock', arguments: { product: '30th celebration', qty: 4, period_id: '1' } });
+  assert.equal(JSON.parse(res.content[0].text).adjust, -2);
+  assert.deepEqual(calls.at(-1).body, { qty: 4 });
+});
+
+test('list_rakuma_orders filters pending replies', async () => {
+  const orders = [
+    { id: '1', purchaseId: null, dismissed: false, issueNote: '', newMessages: 0, chatOpen: true, replies: [{ status: 'PENDING' }] },
+    { id: '2', purchaseId: '9', dismissed: false, issueNote: 'móp', newMessages: 1, chatOpen: false, replies: [] },
+  ];
+  const { client } = await connect({ 'GET /api/v1/rakuma/orders': [200, orders] });
+  const pick = async filter => JSON.parse((await client.callTool({ name: 'list_rakuma_orders', arguments: { filter } })).content[0].text).map(o => o.id);
+  assert.deepEqual(await pick('pending_replies'), ['1']);
+  assert.deepEqual(await pick('issues'), ['2']);
+  assert.deepEqual(await pick('queue'), ['1']);
 });

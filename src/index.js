@@ -13,6 +13,6 @@ try {
   process.exit(1);
 }
 
-const server = new McpServer({ name: 'rakuma', version: '0.1.0' });
+const server = new McpServer({ name: 'rakuma', version: '0.2.0' });
 registerTools(server, client);
 await server.connect(new StdioServerTransport());
