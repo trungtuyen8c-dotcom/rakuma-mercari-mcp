@@ -145,11 +145,11 @@ export function registerTools(server, client) {
 
   server.registerTool('add_sale', {
     title: 'Add sale',
-    description: 'Record a sale in the open period (needs a read-write key). Total = qty x price - shipping paid by the shop.',
+    description: 'Record a sale in the open period (needs a read-write key). Total = qty x price - shipping paid by the shop. A 0¥ price takes opened items out of stock and asks for confirmation.',
     inputSchema: {
       product: z.string().describe('Product id or exact name'),
       qty: z.number().int().min(1),
-      price: z.number().int().positive().describe('Unit price in yen'),
+      price: z.number().int().min(0).describe('Unit price in yen; 0 records opened stock ("bóc hàng"): stock goes down, no revenue'),
       ship: z.number().int().min(0).optional().describe('Shipping paid by the shop, in yen'),
       date: z.string().optional().describe('Sale date YYYY-MM-DD inside the open period'),
       customer: z.string().optional(),
