@@ -328,11 +328,11 @@ export function registerTools(server, client) {
 
   server.registerTool('sync_rakuma_orders', {
     title: 'Push scraped Rakuma orders',
-    description: 'Upsert orders scraped from fril.jp (by orderNo). Empty date/tracking/summary/replyDraft keep stored values. Never send the shipping address.',
+    description: 'Upsert orders scraped from fril.jp (by orderNo). Leave out title/price you could not read: the owner fills them in when approving, and empty fields keep stored values. The result has `warnings` (queued orders already entered by hand, tracking numbers that repeat another row): report each one to the owner. Never send the shipping address.',
     inputSchema: {
       orders: z.array(z.object({
-        orderNo: z.string(), link: z.string(), title: z.string(), image: z.string().optional(), status: z.string().optional(),
-        date: z.string().optional().describe('購入手続完了日 as YYYY-MM-DD'), price: z.number().int().positive(),
+        orderNo: z.string(), link: z.string(), title: z.string().optional(), image: z.string().optional(), status: z.string().optional(),
+        date: z.string().optional().describe('購入手続完了日 as YYYY-MM-DD'), price: z.number().int().min(0).optional(),
         discount: z.number().int().min(0).optional(), carrier: z.string().optional(), tracking: z.string().optional(),
         seller: z.string().optional(), summary: z.string().optional().describe('Vietnamese summary of the chat'),
         replyDraft: z.string().optional().describe('Suggested Japanese reply'), chatOpen: z.boolean().optional(),
