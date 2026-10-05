@@ -331,16 +331,17 @@ export function registerTools(server, client) {
     description: 'Upsert orders scraped from fril.jp (by orderNo). Leave out title/price you could not read: the owner fills them in when approving, and empty fields keep stored values. The result has `warnings` (queued orders already entered by hand, tracking numbers that repeat another row): report each one to the owner. Never send the shipping address.',
     inputSchema: {
       orders: z.array(z.object({
-        orderNo: z.string(), link: z.string(), title: z.string().optional(), image: z.string().optional(), status: z.string().optional(),
+        orderNo: z.string(), link: z.string(), title: z.string().optional(), image: z.string().optional(), status: z.string().optional().describe('Status line. Start with 支払い while unpaid and with 取引完了 once finished'),
         date: z.string().optional().describe('購入手続完了日 as YYYY-MM-DD'), price: z.number().int().min(0).optional(),
         discount: z.number().int().min(0).optional(), carrier: z.string().optional(), tracking: z.string().optional(),
         seller: z.string().optional(), summary: z.string().optional().describe('Vietnamese summary of the chat'),
         replyDraft: z.string().optional().describe('Suggested Japanese reply'), chatOpen: z.boolean().optional(),
         messages: z.array(z.object({ from: z.enum(['seller', 'buyer']), at: z.string().optional(), body: z.string() })).optional(),
-      })).min(1),
+      })),
+      listedLinks: z.array(z.string()).optional().describe('Every item link (https://item.fril.jp/<hex>) listed in 取引中 plus the part of 購入済 that was read. Unfinished stored orders not in it are flagged as missing and reported in `warnings`. Omit only if the lists were not read.'),
     },
     annotations: editing,
-  }, async ({ orders }) => toResult(await client.post('/rakuma/sync', { orders })));
+  }, async ({ orders, listedLinks }) => toResult(await client.post('/rakuma/sync', { orders, listedLinks })));
 
   server.registerTool('mark_rakuma_reply_sent', {
     title: 'Mark Rakuma reply sent',
