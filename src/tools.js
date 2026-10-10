@@ -350,6 +350,13 @@ export function registerTools(server, client) {
     annotations: editing,
   }, async ({ reply_id, body_ja }) => toResult(await client.post(`/rakuma/replies/${reply_id}/sent`, { bodyJa: body_ja })));
 
+  server.registerTool('set_reply_translation', {
+    title: 'Save the Japanese text of a pending reply',
+    description: 'Store the polite Japanese translation of a PENDING reply (the owner\'s Vietnamese text, personalized with shop and item name for BROADCAST). It stays PENDING: the owner sends it from the Chrome extension, which fills Rakuma\'s message box. Rakuma\'s box takes at most 250 characters.',
+    inputSchema: { reply_id: z.string(), body_ja: z.string().min(1).max(250) },
+    annotations: editing,
+  }, async ({ reply_id, body_ja }) => toResult(await client.put(`/rakuma/replies/${reply_id}/translation`, { bodyJa: body_ja })));
+
   server.registerTool('skip_rakuma_reply', {
     title: 'Skip Rakuma reply',
     description: 'Record that a pending reply could not be posted (e.g. the chat is closed).',
