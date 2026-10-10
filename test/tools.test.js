@@ -37,7 +37,7 @@ test('lists the expected tools', async () => {
   const names = (await client.listTools()).tools.map(t => t.name).sort();
   assert.deepEqual(names, ['add_product', 'add_purchase', 'add_sale', 'analyze_product', 'delete_purchase', 'delete_sale',
     'get_dashboard', 'get_stock', 'list_periods', 'list_products', 'list_purchases', 'list_rakuma_orders', 'list_sales',
-    'mark_rakuma_reply_sent', 'open_next_period', 'set_period_totals', 'set_purchase_status', 'set_stock', 'skip_rakuma_reply',
+    'mark_rakuma_reply_sent', 'open_next_period', 'set_period_totals', 'set_purchase_status', 'set_reply_translation', 'set_stock', 'skip_rakuma_reply',
     'sync_rakuma_orders', 'update_purchase', 'update_sale']);
 });
 
@@ -116,4 +116,11 @@ test('list_rakuma_orders filters pending replies', async () => {
   assert.deepEqual(await pick('pending_replies'), ['1']);
   assert.deepEqual(await pick('issues'), ['2']);
   assert.deepEqual(await pick('queue'), ['1']);
+});
+
+test('set_reply_translation stores the Japanese text with PUT', async () => {
+  const { client, calls } = await connect({ 'PUT /api/v1/rakuma/replies/5/translation': [200, { id: '1' }] });
+  const res = await client.callTool({ name: 'set_reply_translation', arguments: { reply_id: '5', body_ja: 'ありがとうございます。' } });
+  assert.equal(res.isError, undefined);
+  assert.deepEqual(calls[0], { key: 'PUT /api/v1/rakuma/replies/5/translation', auth: 'Bearer rk_live_x', body: { bodyJa: 'ありがとうございます。' } });
 });
