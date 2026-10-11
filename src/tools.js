@@ -38,6 +38,19 @@ async function resolveProduct(client, ref) {
   return { product: hit };
 }
 
+// Card by id or exact name (case-insensitive); "" means no card.
+async function resolveCard(client, ref) {
+  if (ref === undefined) return {};
+  const want = String(ref).trim();
+  if (want === '') return { cardId: '' };
+  const res = await client.get('/cards');
+  if (!res.ok) return { error: toResult(res) };
+  const hit = res.data.find(c => c.id === want) || res.data.find(c => c.name.trim().toLowerCase() === want.toLowerCase());
+  if (!hit) return { error: failure(`Card "${ref}" not found. Use list_cards to see the names; the owner adds cards in Cài đặt.`) };
+  return { cardId: hit.id };
+}
+const card = z.string().optional().describe('Payment card id or exact name from list_cards; "" = no card. Its total is charged to that card on the order date.');
+
 const period = z.string().optional().describe('Period id from list_periods; omit for the newest open period');
 const writePeriod = z.string().optional().describe('Period id from list_periods. Omit to pick by date (the open period containing it), else the newest open period. Any period works, closed ones too.');
 const readOnly = { readOnlyHint: true, openWorldHint: false };
@@ -77,6 +90,25 @@ export function registerTools(server, client) {
     inputSchema: {},
     annotations: readOnly,
   }, async () => toResult(await client.get('/products')));
+
+  server.registerTool('list_cards', {
+    title: 'List payment cards',
+    description: 'Payment cards shared with the other projects (matched by exact name): id, name, currency, default card for synced Rakuma orders, active flag, number of purchases.',
+    inputSchema: {},
+    annotations: readOnly,
+  }, async () => toResult(await client.get('/cards')));
+
+  server.registerTool('wallet_ledger', {
+    title: 'Card ledger',
+    description: 'This project\'s charges on the shared payment cards, in the same shape as the order project\'s accounting_wallet_ledger (wallet, currency, project "rakuma", date, signed amount, category). Card balance = opening (order project) + the ledger rows of every project.',
+    inputSchema: {
+      from: z.string().optional().describe('YYYY-MM-DD, inclusive'),
+      to: z.string().optional().describe('YYYY-MM-DD, inclusive'),
+      wallet: z.string().optional().describe('Card name'),
+      group: z.enum(['day', 'week', 'month']).optional().describe('Add the charges up per day, week (Monday start) or month and card, instead of listing each row'),
+    },
+    annotations: readOnly,
+  }, async ({ from, to, wallet, group }) => toResult(await client.get((group ? '/wallet-ledger/totals' : '/wallet-ledger') + qs({ group, from, to, wallet }))));
 
   server.registerTool('get_stock', {
     title: 'Stock',
@@ -149,14 +181,17 @@ export function registerTools(server, client) {
       tracking: z.string().optional().describe('Tracking number, as text'),
       merged: z.boolean().optional().describe('Several items shipped in one parcel under the same tracking number'),
       note: z.string().optional(),
+      card,
       confirm_warnings: z.boolean().optional().describe('Save despite duplicate link/tracking warnings; only after the user confirms'),
     },
     annotations: additive,
-  }, async ({ product, confirm_warnings, ...rest }) => {
+  }, async ({ product, card: cardRef, confirm_warnings, ...rest }) => {
     const r = await resolveProduct(client, product);
     if (r.error) return r.error;
+    const c = await resolveCard(client, cardRef);
+    if (c.error) return c.error;
     const { period_id, ...body } = rest;
-    return toResult(await client.post('/purchases' + force(confirm_warnings), { ...body, periodId: period_id, productId: r.product.id }));
+    return toResult(await client.post('/purchases' + force(confirm_warnings), { ...body, periodId: period_id, productId: r.product.id, cardId: c.cardId }));
   });
 
   server.registerTool('add_sale', {
@@ -198,10 +233,11 @@ export function registerTools(server, client) {
       tracking: z.string().optional(),
       merged: z.boolean().optional(),
       note: z.string().optional(),
+      card,
       confirm_warnings: confirmWarnings,
     },
     annotations: editing,
-  }, async ({ id, product, confirm_warnings, ...changes }) => {
+  }, async ({ id, product, card: cardRef, confirm_warnings, ...changes }) => {
     const f = await findRow(client, '/purchases', id);
     if (f.error) return f.error;
     const r = f.row;
@@ -215,6 +251,9 @@ export function registerTools(server, client) {
       periodId: r.periodId, productId, source: r.source, date: r.date, price: r.price, qty: r.qty, discount: r.discount,
       tracking: r.tracking, merged: r.merged, link: r.link, note: r.note, ...changes,
     };
+    const c = await resolveCard(client, cardRef);
+    if (c.error) return c.error;
+    if (c.cardId !== undefined) body.cardId = c.cardId;
     return toResult(await client.put('/purchases/' + r.id + force(confirm_warnings), body));
   });
 
