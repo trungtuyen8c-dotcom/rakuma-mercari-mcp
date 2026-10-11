@@ -135,6 +135,7 @@ test('purchases take a card by name; editing without card keeps it; the ledger p
     'GET /api/v1/purchases': [200, [row]],
     'PUT /api/v1/purchases/9': [200, { id: '9' }],
     'GET /api/v1/wallet-ledger?from=2026-10-01&wallet=Rakuten+Card': [200, [{ id: 'rakuma:purchase:9', amount: -1000 }]],
+    'GET /api/v1/wallet-ledger/totals?group=month': [200, [{ period: '2026-10-01', wallet: 'Rakuten Card', count: 1, amount: -1000 }]],
   });
   await client.callTool({ name: 'add_purchase', arguments: { product: '7', price: 1000, qty: 1, card: 'rakuten card' } });
   assert.equal(calls.find(c => c.key === 'POST /api/v1/purchases').body.cardId, '3');
@@ -149,4 +150,6 @@ test('purchases take a card by name; editing without card keeps it; the ledger p
 
   const ledger = await client.callTool({ name: 'wallet_ledger', arguments: { from: '2026-10-01', wallet: 'Rakuten Card' } });
   assert.equal(JSON.parse(ledger.content[0].text)[0].amount, -1000);
+  const month = await client.callTool({ name: 'wallet_ledger', arguments: { group: 'month' } });
+  assert.equal(JSON.parse(month.content[0].text)[0].period, '2026-10-01');
 });

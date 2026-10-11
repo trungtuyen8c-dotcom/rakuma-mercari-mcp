@@ -105,9 +105,10 @@ export function registerTools(server, client) {
       from: z.string().optional().describe('YYYY-MM-DD, inclusive'),
       to: z.string().optional().describe('YYYY-MM-DD, inclusive'),
       wallet: z.string().optional().describe('Card name'),
+      group: z.enum(['day', 'week', 'month']).optional().describe('Add the charges up per day, week (Monday start) or month and card, instead of listing each row'),
     },
     annotations: readOnly,
-  }, async ({ from, to, wallet }) => toResult(await client.get('/wallet-ledger' + qs({ from, to, wallet }))));
+  }, async ({ from, to, wallet, group }) => toResult(await client.get((group ? '/wallet-ledger/totals' : '/wallet-ledger') + qs({ group, from, to, wallet }))));
 
   server.registerTool('get_stock', {
     title: 'Stock',
