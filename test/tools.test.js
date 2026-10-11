@@ -36,9 +36,9 @@ test('lists the expected tools', async () => {
   const { client } = await connect({});
   const names = (await client.listTools()).tools.map(t => t.name).sort();
   assert.deepEqual(names, ['add_product', 'add_purchase', 'add_sale', 'analyze_product', 'delete_purchase', 'delete_sale',
-    'get_dashboard', 'get_stock', 'list_periods', 'list_products', 'list_purchases', 'list_rakuma_orders', 'list_sales',
+    'get_dashboard', 'get_stock', 'list_cards', 'list_periods', 'list_products', 'list_purchases', 'list_rakuma_orders', 'list_sales',
     'mark_rakuma_reply_sent', 'open_next_period', 'set_period_totals', 'set_purchase_status', 'set_reply_translation', 'set_stock', 'skip_rakuma_reply',
-    'sync_rakuma_orders', 'update_purchase', 'update_sale']);
+    'sync_rakuma_orders', 'update_purchase', 'update_sale', 'wallet_ledger']);
 });
 
 test('sends the API key and resolves product names', async () => {
@@ -123,4 +123,30 @@ test('set_reply_translation stores the Japanese text with PUT', async () => {
   const res = await client.callTool({ name: 'set_reply_translation', arguments: { reply_id: '5', body_ja: 'ありがとうございます。' } });
   assert.equal(res.isError, undefined);
   assert.deepEqual(calls[0], { key: 'PUT /api/v1/rakuma/replies/5/translation', auth: 'Bearer rk_live_x', body: { bodyJa: 'ありがとうございます。' } });
+});
+
+test('purchases take a card by name; editing without card keeps it; the ledger passes filters', async () => {
+  const cards = [{ id: '3', name: 'Rakuten Card', currency: 'JPY', default: true, active: true, txCount: 0 }];
+  const row = { id: '9', periodId: '2', productId: '7', source: 'REGULAR', date: '2026-10-01', price: 1000, qty: 1, discount: 0, tracking: '', merged: false, link: '', note: '', cardId: '3' };
+  const { client, calls } = await connect({
+    'GET /api/v1/products': [200, products],
+    'GET /api/v1/cards': [200, cards],
+    'POST /api/v1/purchases': [201, { id: '9' }],
+    'GET /api/v1/purchases': [200, [row]],
+    'PUT /api/v1/purchases/9': [200, { id: '9' }],
+    'GET /api/v1/wallet-ledger?from=2026-10-01&wallet=Rakuten+Card': [200, [{ id: 'rakuma:purchase:9', amount: -1000 }]],
+  });
+  await client.callTool({ name: 'add_purchase', arguments: { product: '7', price: 1000, qty: 1, card: 'rakuten card' } });
+  assert.equal(calls.find(c => c.key === 'POST /api/v1/purchases').body.cardId, '3');
+
+  const missing = await client.callTool({ name: 'add_purchase', arguments: { product: '7', price: 1000, qty: 1, card: 'Amex' } });
+  assert.equal(missing.isError, true);
+
+  await client.callTool({ name: 'update_purchase', arguments: { id: '9', price: 1200 } });
+  assert.equal('cardId' in calls.filter(c => c.key === 'PUT /api/v1/purchases/9').at(-1).body, false);
+  await client.callTool({ name: 'update_purchase', arguments: { id: '9', card: '' } });
+  assert.equal(calls.filter(c => c.key === 'PUT /api/v1/purchases/9').at(-1).body.cardId, '');
+
+  const ledger = await client.callTool({ name: 'wallet_ledger', arguments: { from: '2026-10-01', wallet: 'Rakuten Card' } });
+  assert.equal(JSON.parse(ledger.content[0].text)[0].amount, -1000);
 });
