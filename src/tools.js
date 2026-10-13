@@ -38,18 +38,22 @@ async function resolveProduct(client, ref) {
   return { product: hit };
 }
 
-// Card by id or exact name (case-insensitive); "" means no card.
-async function resolveCard(client, ref) {
+// Card (currency JPY) or point wallet (PT) by id or exact name (case-insensitive); "" means none.
+async function resolveCard(client, ref, currency = 'JPY') {
   if (ref === undefined) return {};
   const want = String(ref).trim();
   if (want === '') return { cardId: '' };
   const res = await client.get('/cards');
   if (!res.ok) return { error: toResult(res) };
-  const hit = res.data.find(c => c.id === want) || res.data.find(c => c.name.trim().toLowerCase() === want.toLowerCase());
-  if (!hit) return { error: failure(`Card "${ref}" not found. Use list_cards to see the names; the owner adds cards in Cài đặt.`) };
+  const mine = res.data.filter(c => (c.currency === 'PT') === (currency === 'PT'));
+  const hit = mine.find(c => c.id === want) || mine.find(c => c.name.trim().toLowerCase() === want.toLowerCase());
+  const what = currency === 'PT' ? 'Point wallet' : 'Card';
+  if (!hit) return { error: failure(`${what} "${ref}" not found. Use list_cards to see the names; the owner adds them in Cài đặt.`) };
   return { cardId: hit.id };
 }
-const card = z.string().optional().describe('Payment card id or exact name from list_cards; "" = no card. Its total is charged to that card on the order date.');
+const card = z.string().optional().describe('Payment card id or exact name from list_cards (currency JPY); "" = no card. It is charged the total minus the points, on the order date.');
+const points = z.number().int().min(0).optional().describe('Part of the total paid with points (1 point = ¥1). Points are capital bought with VND: the cost stays the full total, only the card part is charged to the card. 0 removes them.');
+const pointWallet = z.string().optional().describe('Point wallet id or exact name from list_cards (currency PT) the points came from; may be omitted when there is only one.');
 
 const period = z.string().optional().describe('Period id from list_periods; omit for the newest open period');
 const writePeriod = z.string().optional().describe('Period id from list_periods. Omit to pick by date (the open period containing it), else the newest open period. Any period works, closed ones too.');
@@ -93,14 +97,14 @@ export function registerTools(server, client) {
 
   server.registerTool('list_cards', {
     title: 'List payment cards',
-    description: 'Payment cards shared with the other projects (matched by exact name): id, name, currency, default card for synced Rakuma orders, active flag, number of purchases.',
+    description: 'Payment cards (currency JPY) and point wallets (currency PT, 1 point = ¥1) shared with the other projects (matched by exact name): id, name, currency, default card for synced Rakuma orders, active flag, number of purchases.',
     inputSchema: {},
     annotations: readOnly,
   }, async () => toResult(await client.get('/cards')));
 
   server.registerTool('wallet_ledger', {
     title: 'Card ledger',
-    description: 'This project\'s charges on the shared payment cards, in the same shape as the order project\'s accounting_wallet_ledger (wallet, currency, project "rakuma", date, signed amount, category). Card balance = opening (order project) + the ledger rows of every project.',
+    description: 'This project\'s charges on the shared payment cards, in the same shape as the order project\'s accounting_wallet_ledger (wallet, currency, project "rakuma", date, signed amount, category "Mua hàng" / "Tiêu point" / "Hoàn tiền"). Point wallets have currency PT; the hub prices points at their VND cost. Card balance = opening (order project) + the ledger rows of every project.',
     inputSchema: {
       from: z.string().optional().describe('YYYY-MM-DD, inclusive'),
       to: z.string().optional().describe('YYYY-MM-DD, inclusive'),
@@ -182,16 +186,22 @@ export function registerTools(server, client) {
       merged: z.boolean().optional().describe('Several items shipped in one parcel under the same tracking number'),
       note: z.string().optional(),
       card,
+      points,
+      point_wallet: pointWallet,
       confirm_warnings: z.boolean().optional().describe('Save despite duplicate link/tracking warnings; only after the user confirms'),
     },
     annotations: additive,
-  }, async ({ product, card: cardRef, confirm_warnings, ...rest }) => {
+  }, async ({ product, card: cardRef, point_wallet, confirm_warnings, ...rest }) => {
     const r = await resolveProduct(client, product);
     if (r.error) return r.error;
     const c = await resolveCard(client, cardRef);
     if (c.error) return c.error;
+    const w = await resolveCard(client, point_wallet, 'PT');
+    if (w.error) return w.error;
     const { period_id, ...body } = rest;
-    return toResult(await client.post('/purchases' + force(confirm_warnings), { ...body, periodId: period_id, productId: r.product.id, cardId: c.cardId }));
+    return toResult(await client.post('/purchases' + force(confirm_warnings), {
+      ...body, periodId: period_id, productId: r.product.id, cardId: c.cardId, pointCardId: w.cardId,
+    }));
   });
 
   server.registerTool('add_sale', {
@@ -234,10 +244,12 @@ export function registerTools(server, client) {
       merged: z.boolean().optional(),
       note: z.string().optional(),
       card,
+      points,
+      point_wallet: pointWallet,
       confirm_warnings: confirmWarnings,
     },
     annotations: editing,
-  }, async ({ id, product, card: cardRef, confirm_warnings, ...changes }) => {
+  }, async ({ id, product, card: cardRef, point_wallet, confirm_warnings, ...changes }) => {
     const f = await findRow(client, '/purchases', id);
     if (f.error) return f.error;
     const r = f.row;
@@ -254,6 +266,9 @@ export function registerTools(server, client) {
     const c = await resolveCard(client, cardRef);
     if (c.error) return c.error;
     if (c.cardId !== undefined) body.cardId = c.cardId;
+    const w = await resolveCard(client, point_wallet, 'PT');
+    if (w.error) return w.error;
+    if (w.cardId !== undefined) body.pointCardId = w.cardId;
     return toResult(await client.put('/purchases/' + r.id + force(confirm_warnings), body));
   });
 
